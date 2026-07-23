@@ -18,7 +18,9 @@ router = Router(name="callbacks")
 
 @router.callback_query(F.data.startswith("cancel:"))
 async def on_cancel(callback: CallbackQuery, store) -> None:
-    assert callback.data
+    if not callback.data:
+        await callback.answer()
+        return
     pending_id = callback.data.split(":", 1)[1]
     await store.delete_pending(pending_id)
     await callback.answer("Отменено")
@@ -31,7 +33,9 @@ async def on_cancel(callback: CallbackQuery, store) -> None:
 
 @router.callback_query(F.data.startswith("dl:"))
 async def on_download(callback: CallbackQuery, api: BackendClient, store) -> None:
-    assert callback.from_user and callback.data and callback.message
+    if not callback.from_user or not callback.data or not callback.message:
+        await callback.answer("Ошибка", show_alert=True)
+        return
 
     parts = callback.data.split(":")
     if len(parts) != 3:
@@ -120,10 +124,14 @@ async def on_download(callback: CallbackQuery, api: BackendClient, store) -> Non
         download_url = result.get("download_url")
         link = "Файл на сервере подготовлен."
         if download_url:
-            if str(download_url).startswith("/"):
-                link = f"Временный файл готов (TTL).\n<code>{download_url}</code>"
-            else:
-                link = f'<a href="{download_url}">Скачать файл</a>'
+            href = str(download_url)
+            if href.startswith("/"):
+                from app.config import get_settings
+
+                href = f"{get_settings().backend_public_url.rstrip('/')}{href}"
+            # Escape quotes in URL for HTML attribute
+            safe_href = href.replace('"', "%22")
+            link = f'<a href="{safe_href}">Скачать файл</a>'
         await progress_msg.edit_text(
             texts.DOWNLOAD_DONE.format(quality=quality, link=link),
             parse_mode="HTML",

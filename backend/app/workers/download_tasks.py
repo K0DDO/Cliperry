@@ -21,6 +21,22 @@ from app.workers.celery_app import DOWNLOAD_QUEUE, celery_app
 logger = logging.getLogger("cliperry.workers.download")
 
 
+def _client_error_message(exc: Exception) -> str:
+    """Map parser exceptions to short user-facing messages (no internals)."""
+    if isinstance(exc, ParserNotImplementedError):
+        return "Платформа пока не поддерживается"
+    if isinstance(exc, UnsupportedPlatformError):
+        return "Ссылка не поддерживается"
+    text = str(exc).lower()
+    if "private" in text or "login" in text or "sign in" in text:
+        return "Видео недоступно (приватное или требует вход)"
+    if "age" in text or "confirm" in text:
+        return "Видео недоступно (возрастное ограничение)"
+    if "unavailable" in text or "removed" in text or "not found" in text:
+        return "Видео недоступно или удалено"
+    return "Не удалось скачать видео"
+
+
 @celery_app.task(name="cliperry.download", bind=True, queue=DOWNLOAD_QUEUE)
 def download_media(self, task_id: str) -> dict[str, Any]:
     """
@@ -106,11 +122,13 @@ def download_media(self, task_id: str) -> dict[str, Any]:
                 progress_hook=progress_hook,
             )
         else:
-            import asyncio
-
-            file_path = asyncio.run(parser.download(url, quality))
+            raise ParserNotImplementedError(
+                getattr(parser, "platform", "unknown"),
+                "download_sync",
+            )
     except (ParserError, ParserNotImplementedError, UnsupportedPlatformError) as exc:
         logger.warning("download_failed task_id=%s error=%s", task_id, exc)
+        safe = _client_error_message(exc)
         with sync_session() as session:
             task = session.get(Task, task_uuid)
             if task is not None:
@@ -118,11 +136,12 @@ def download_media(self, task_id: str) -> dict[str, Any]:
                     session,
                     task,
                     status=TaskStatus.FAILED,
-                    error_message=str(exc),
+                    error_message=safe,
                 )
-        return {"task_id": task_id, "status": "failed", "error": str(exc)}
+        return {"task_id": task_id, "status": "failed", "error": safe}
     except Exception as exc:  # noqa: BLE001
         logger.exception("download_unexpected task_id=%s", task_id)
+        safe = "Не удалось скачать видео"
         with sync_session() as session:
             task = session.get(Task, task_uuid)
             if task is not None:
@@ -130,13 +149,16 @@ def download_media(self, task_id: str) -> dict[str, Any]:
                     session,
                     task,
                     status=TaskStatus.FAILED,
-                    error_message="Unexpected download error",
+                    error_message=safe,
                 )
-        return {"task_id": task_id, "status": "failed", "error": str(exc)}
+        return {"task_id": task_id, "status": "failed", "error": safe}
 
     storage = StorageService()
     token = storage.create_download_token(task_id)
-    download_url = f"/api/files/{task_id}?token={token}"
+    from app.config import get_settings
+
+    public = get_settings().backend_public_url.rstrip("/")
+    download_url = f"{public}/api/files/{task_id}?token={token}"
 
     with sync_session() as session:
         task = session.execute(
