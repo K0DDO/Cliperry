@@ -111,8 +111,19 @@ class Settings(BaseSettings):
 
     @property
     def trusted_host_list(self) -> list[str]:
-        """Parse comma-separated trusted hosts (``*`` allows all)."""
-        return [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
+        """Parse comma-separated trusted hosts (``*`` allows all).
+
+        Always allow localhost/127.0.0.1 so Docker healthchecks
+        (``curl http://127.0.0.1:…/ready``) are not rejected by
+        TrustedHostMiddleware.
+        """
+        hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
+        if hosts == ["*"]:
+            return hosts
+        for local in ("localhost", "127.0.0.1"):
+            if local not in hosts:
+                hosts.append(local)
+        return hosts
 
     @property
     def is_development(self) -> bool:
