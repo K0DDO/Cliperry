@@ -67,7 +67,7 @@ export function MainScreen({
             className="field__input"
             type="url"
             value={url}
-            placeholder="Paste a YouTube, TikTok, Instagram or X link…"
+            placeholder="Paste a YouTube link…"
             spellCheck={false}
             disabled={busy}
             onChange={(event) => onUrlChange(event.target.value)}

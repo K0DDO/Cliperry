@@ -20,13 +20,9 @@ pytestmark = [pytest.mark.unit, pytest.mark.parsers]
         ("https://www.youtube.com/watch?v=abc", "youtube", YoutubeParser),
         ("https://youtu.be/abc", "youtube", YoutubeParser),
         ("https://www.youtube.com/shorts/abc", "youtube", YoutubeParser),
-        ("https://www.tiktok.com/@user/video/123", "tiktok", TikTokParser),
-        ("https://www.instagram.com/reel/abc/", "instagram", InstagramParser),
-        ("https://twitter.com/user/status/123", "twitter", TwitterParser),
-        ("https://x.com/user/status/123", "twitter", TwitterParser),
     ],
 )
-def test_factory_detects_platform(url: str, platform: str, parser_cls: type) -> None:
+def test_factory_detects_youtube(url: str, platform: str, parser_cls: type) -> None:
     factory = ParserFactory()
     parser = factory.get_parser(url)
     assert parser.platform == platform
@@ -34,19 +30,33 @@ def test_factory_detects_platform(url: str, platform: str, parser_cls: type) -> 
     assert factory.detect_platform(url) == platform
 
 
-def test_factory_rejects_unknown_domain() -> None:
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.tiktok.com/@user/video/123",
+        "https://www.instagram.com/reel/abc/",
+        "https://twitter.com/user/status/123",
+        "https://x.com/user/status/123",
+        "https://example.com/video",
+    ],
+)
+def test_factory_rejects_unready_or_unknown(url: str) -> None:
     factory = ParserFactory()
     with pytest.raises(UnsupportedPlatformError):
-        factory.get_parser("https://example.com/video")
+        factory.get_parser(url)
 
 
-def test_factory_lists_platforms() -> None:
+def test_factory_lists_ready_platforms_only() -> None:
     factory = ParserFactory()
     platforms = factory.list_platforms()
-    assert "youtube" in platforms
-    assert "tiktok" in platforms
-    assert "instagram" in platforms
-    assert "twitter" in platforms
+    assert platforms == ["youtube"]
+
+
+def test_factory_can_register_stub_later() -> None:
+    factory = ParserFactory()
+    factory.register(TikTokParser)
+    parser = factory.get_parser("https://www.tiktok.com/@user/video/123")
+    assert isinstance(parser, TikTokParser)
 
 
 @pytest.mark.asyncio

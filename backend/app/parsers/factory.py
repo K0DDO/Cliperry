@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from app.parsers.base import BaseParser
 from app.parsers.exceptions import UnsupportedPlatformError
-from app.parsers.instagram import InstagramParser
-from app.parsers.tiktok import TikTokParser
-from app.parsers.twitter import TwitterParser
 from app.parsers.youtube import YoutubeParser
 
 
@@ -21,9 +18,8 @@ class ParserFactory:
 
     _DEFAULT_PARSERS: tuple[type[BaseParser], ...] = (
         YoutubeParser,
-        TikTokParser,
-        InstagramParser,
-        TwitterParser,
+        # TikTok / Instagram / Twitter stubs stay in codebase but are not
+        # registered until implemented — soft-launch is YouTube-only.
     )
 
     def __init__(self, parsers: list[type[BaseParser]] | None = None) -> None:

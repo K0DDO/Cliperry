@@ -45,12 +45,9 @@ export const STORAGE_KEYS = {
 export const DEFAULT_API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-/** Platforms fully supported for download today. */
-export const READY_PLATFORMS = [{ id: "youtube", label: "YouTube", hostHint: "youtube.com" }] as const;
-
-export const SUPPORTED_PLATFORMS = [
-  ...READY_PLATFORMS,
-  { id: "tiktok", label: "TikTok (soon)", hostHint: "tiktok.com" },
-  { id: "instagram", label: "Instagram (soon)", hostHint: "instagram.com" },
-  { id: "twitter", label: "Twitter / X (soon)", hostHint: "x.com" },
+export const READY_PLATFORMS = [
+  { id: "youtube", label: "YouTube", hostHint: "youtube.com" },
 ] as const;
+
+/** Shown in UI — YouTube-only soft-launch. */
+export const SUPPORTED_PLATFORMS = [...READY_PLATFORMS] as const;

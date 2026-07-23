@@ -4,9 +4,6 @@ import pytest
 
 from app.parsers.exceptions import UnsupportedPlatformError
 from app.parsers.factory import ParserFactory
-from app.parsers.instagram import InstagramParser
-from app.parsers.tiktok import TikTokParser
-from app.parsers.twitter import TwitterParser
 from app.parsers.youtube import YoutubeParser
 
 
@@ -16,13 +13,9 @@ from app.parsers.youtube import YoutubeParser
         ("https://www.youtube.com/watch?v=abc", "youtube", YoutubeParser),
         ("https://youtu.be/abc", "youtube", YoutubeParser),
         ("https://www.youtube.com/shorts/abc", "youtube", YoutubeParser),
-        ("https://www.tiktok.com/@user/video/123", "tiktok", TikTokParser),
-        ("https://www.instagram.com/reel/abc/", "instagram", InstagramParser),
-        ("https://twitter.com/user/status/123", "twitter", TwitterParser),
-        ("https://x.com/user/status/123", "twitter", TwitterParser),
     ],
 )
-def test_factory_detects_platform(
+def test_factory_detects_youtube(
     url: str,
     platform: str,
     parser_cls: type,
@@ -34,10 +27,18 @@ def test_factory_detects_platform(
     assert factory.detect_platform(url) == platform
 
 
-def test_factory_rejects_unknown_domain() -> None:
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.tiktok.com/@user/video/123",
+        "https://www.instagram.com/reel/abc/",
+        "https://example.com/video",
+    ],
+)
+def test_factory_rejects_unready_platforms(url: str) -> None:
     factory = ParserFactory()
     with pytest.raises(UnsupportedPlatformError):
-        factory.get_parser("https://example.com/video")
+        factory.get_parser(url)
 
 
 @pytest.mark.asyncio
