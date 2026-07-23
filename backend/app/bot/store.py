@@ -19,7 +19,7 @@ class BotStore:
         await self._redis.aclose()
 
     async def save_pending(self, payload: dict[str, Any], ttl: int = 1800) -> str:
-        pending_id = uuid.uuid4().hex[:12]
+        pending_id = uuid.uuid4().hex
         key = f"bot:pending:{pending_id}"
         await self._redis.set(key, json.dumps(payload, ensure_ascii=False), ex=ttl)
         return pending_id

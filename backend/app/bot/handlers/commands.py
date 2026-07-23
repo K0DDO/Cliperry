@@ -90,8 +90,14 @@ async def cmd_settings(message: Message, store) -> None:
 
 @router.callback_query(F.data.startswith("set_quality:"))
 async def on_set_quality(callback: CallbackQuery, store) -> None:
-    assert callback.from_user and callback.data
+    if not callback.from_user or not callback.data:
+        await callback.answer()
+        return
     quality = callback.data.split(":", 1)[1]
+    allowed = {"1080p", "720p", "480p", "360p", "audio", "best"}
+    if quality not in allowed:
+        await callback.answer("Некорректное качество", show_alert=True)
+        return
     await store.set_default_quality(callback.from_user.id, quality)
     await callback.answer(f"Сохранено: {quality}")
     if callback.message:

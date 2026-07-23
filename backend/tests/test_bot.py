@@ -1,6 +1,7 @@
 """Bot unit tests (no Telegram network)."""
 
-from app.bot.api_client import device_id_for_telegram
+import pytest
+
 from app.bot.handlers.links import extract_url
 from app.bot.keyboards import quality_keyboard
 from app.bot.texts import format_analyze_caption, progress_bar
@@ -11,11 +12,34 @@ def test_extract_url() -> None:
     assert extract_url("нет ссылки") is None
 
 
-def test_device_id_stable() -> None:
-    a = device_id_for_telegram(123)
-    b = device_id_for_telegram(123)
+@pytest.mark.asyncio
+async def test_device_id_stable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.bot.api_client import BackendClient
+
+    store: dict[str, str] = {}
+
+    class FakeRedis:
+        async def get(self, key: str):
+            return store.get(key)
+
+        async def set(self, key: str, value: str, nx: bool = False):
+            if nx and key in store:
+                return False
+            store[key] = value
+            return True
+
+        async def aclose(self):
+            return None
+
+    client = BackendClient("http://backend:8000", "redis://localhost:6379/0")
+    client._redis = FakeRedis()  # type: ignore[assignment]
+
+    a = await client.device_id_for_telegram(123)
+    b = await client.device_id_for_telegram(123)
     assert a == b
     assert len(a) == 36
+    c = await client.device_id_for_telegram(999)
+    assert c != a
 
 
 def test_progress_bar() -> None:

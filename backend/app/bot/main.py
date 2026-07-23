@@ -29,7 +29,7 @@ async def main() -> None:
         sys.exit(1)
 
     backend_url = settings.backend_public_url
-    api = BackendClient(backend_url)
+    api = BackendClient(backend_url, settings.redis_url)
     store = BotStore(settings.redis_url)
 
     bot = Bot(
