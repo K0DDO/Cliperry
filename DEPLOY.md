@@ -208,14 +208,14 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## 6. Reverse proxy (Caddy)
 
-Backend слушает только `127.0.0.1:8000`. Наружу — 80/443 через Caddy (или nginx).
+Backend слушает только loopback. По умолчанию **`127.0.0.1:8001`** (`BACKEND_HOST_PORT`), чтобы не конфликтовать с Briefly на `:8000`. Наружу — 80/443 через Caddy (или nginx).
 
 Пример `/etc/caddy/Caddyfile`:
 
 ```caddy
 api.yourdomain.com {
     encode gzip
-    reverse_proxy 127.0.0.1:8000 {
+    reverse_proxy 127.0.0.1:8001 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
         header_up Host {host}
@@ -299,7 +299,7 @@ gunzip -c backups/predeploy_YYYY-MM-DD_HH-MM.sql.gz \
 whoami                    # deploy
 pwd                       # /opt/cliperry
 docker compose -f docker-compose.prod.yml --env-file .env.production ps
-curl -fsS http://127.0.0.1:8000/ready
+curl -fsS http://127.0.0.1:8001/ready
 docker inspect cliperry-postgres --format='{{.State.Health.Status}}'  # healthy
 docker inspect cliperry-redis --format='{{.State.Health.Status}}'     # healthy
 ```

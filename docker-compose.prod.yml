@@ -96,7 +96,8 @@ services:
       ENABLE_WORKER_TEST: "false"
     ports:
       # Bind loopback only — put Caddy/nginx in front for public TLS
-      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+      # Default 8001 to avoid clash with other apps on shared VPS (e.g. Briefly on 8000)
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8001}:8000"
     volumes:
       - temp_data:/tmp/cliperry
       - cookies_data:/app/cookies:ro

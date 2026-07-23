@@ -45,7 +45,7 @@ curl http://localhost:8000/ready
 
 1. Пользователь `deploy` + Docker group, каталог `/opt/cliperry`
 2. `.env.production` из `.env.production.example` (только на сервере)
-3. Caddy/nginx TLS → `127.0.0.1:8000`
+3. Caddy/nginx TLS → `127.0.0.1:8001` (`BACKEND_HOST_PORT`)
 4. Secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
 5. Push `main` или **Actions → Deploy → Run workflow** → SSH → `scripts/vps-deploy.sh`
 

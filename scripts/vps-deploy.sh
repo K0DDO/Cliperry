@@ -123,7 +123,8 @@ while (( SECONDS < deadline )); do
   [[ "$pg_status" == "healthy" ]] && postgres_ok=1
   [[ "$rd_status" == "healthy" ]] && redis_ok=1
   # backend healthcheck hits /ready
-  if [[ "$be_status" == "healthy" ]] || curl -fsS http://127.0.0.1:8000/ready >/dev/null 2>&1; then
+  host_port="${BACKEND_HOST_PORT:-8001}"
+  if [[ "$be_status" == "healthy" ]] || curl -fsS "http://127.0.0.1:${host_port}/ready" >/dev/null 2>&1; then
     backend_ok=1
   fi
 
