@@ -56,6 +56,8 @@ def _default_opts(**extra: Any) -> dict[str, Any]:
         "cachedir": False,
         "retries": 3,
         "max_filesize": settings.download_max_filesize_bytes,
+        # Allow fetching EJS challenge solvers when yt-dlp-ejs is not bundled.
+        "remote_components": {"ejs:github"},
         # Prefer web when cookies+deno are available; android as fallback without cookies.
         "extractor_args": {
             "youtube": {

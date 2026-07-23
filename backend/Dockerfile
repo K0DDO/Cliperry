@@ -16,7 +16,7 @@ ENV PATH="/usr/local/bin:${PATH}"
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt \
-    && pip install -U "yt-dlp>=2026.7.4"
+    && pip install -U "yt-dlp[default]>=2026.7.4"
 
 COPY . .
 
