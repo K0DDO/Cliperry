@@ -19,10 +19,24 @@ class YtDlpError(Exception):
 
 def _auth_opts() -> dict[str, Any]:
     """Optional cookies / proxy from settings (helps with YouTube bot checks)."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+
     settings = get_settings()
     opts: dict[str, Any] = {}
     if settings.ytdlp_cookies_file:
-        opts["cookiefile"] = settings.ytdlp_cookies_file
+        src = Path(settings.ytdlp_cookies_file)
+        if src.is_file():
+            # Volume is often mounted :ro; yt-dlp may rewrite the cookie jar.
+            dest = Path(tempfile.gettempdir()) / "cliperry-cookies.txt"
+            try:
+                shutil.copy2(src, dest)
+                opts["cookiefile"] = str(dest)
+            except OSError:
+                opts["cookiefile"] = str(src)
+        else:
+            logger.warning("cookies_file_missing path=%s", src)
     elif settings.ytdlp_cookies_from_browser:
         # e.g. "chrome", "firefox", "edge"
         opts["cookiesfrombrowser"] = (settings.ytdlp_cookies_from_browser,)
