@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.auth.rate_limit import RateLimiter
+from app.config import get_settings
 from app.database.redis import get_redis
 from app.database.session import get_session_factory
 from app.models.device import Device
@@ -33,6 +36,7 @@ async def task_progress_ws(websocket: WebSocket, task_id: uuid.UUID) -> None:
     ``device_id`` is required — ownership is always enforced.
     """
     await websocket.accept()
+    settings = get_settings()
     device_key = (websocket.query_params.get("device_id") or "").strip()
     if not device_key:
         await websocket.send_json(
@@ -57,6 +61,30 @@ async def task_progress_ws(websocket: WebSocket, task_id: uuid.UUID) -> None:
         )
         await websocket.close(code=4401)
         return
+
+    # Per-device connection rate limit (abuse / connection flood).
+    try:
+        redis = get_redis()
+        limiter = RateLimiter(redis, settings)
+        await limiter.check(
+            key=f"ws:{device_key}",
+            limit=settings.rate_limit_ws,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # rate_limited raises AppError subclass — map to WS close
+        from app.errors import AppError
+
+        if isinstance(exc, AppError) and exc.code == "rate_limit_exceeded":
+            await websocket.send_json(
+                {
+                    "error": True,
+                    "code": "rate_limited",
+                    "message": "Слишком много WebSocket подключений",
+                }
+            )
+            await websocket.close(code=4429)
+            return
+        logger.exception("ws_rate_limit_failed")
 
     session_factory = get_session_factory()
 
@@ -103,13 +131,29 @@ async def task_progress_ws(websocket: WebSocket, task_id: uuid.UUID) -> None:
     channel = progress_channel(task_id)
     await pubsub.subscribe(channel)
 
+    started = time.monotonic()
+    last_pubsub = time.monotonic()
+    max_session = float(settings.ws_max_session_seconds)
+    db_fallback = float(settings.ws_db_fallback_seconds)
+
     try:
         while True:
+            if time.monotonic() - started > max_session:
+                await websocket.send_json(
+                    {
+                        "error": True,
+                        "code": "session_expired",
+                        "message": "WebSocket session timed out",
+                    }
+                )
+                break
+
             message = await pubsub.get_message(
                 ignore_subscribe_messages=True,
                 timeout=1.0,
             )
             if message and message.get("type") == "message":
+                last_pubsub = time.monotonic()
                 data = message.get("data")
                 if isinstance(data, bytes):
                     data = data.decode("utf-8")
@@ -125,7 +169,9 @@ async def task_progress_ws(websocket: WebSocket, task_id: uuid.UUID) -> None:
                     "failed",
                 }:
                     break
-            else:
+            elif time.monotonic() - last_pubsub >= db_fallback:
+                # Fallback snapshot only when pub/sub has been quiet for a while.
+                last_pubsub = time.monotonic()
                 async with session_factory() as session:
                     current = (
                         await session.execute(
@@ -136,7 +182,6 @@ async def task_progress_ws(websocket: WebSocket, task_id: uuid.UUID) -> None:
                     ).scalar_one_or_none()
                     if current is None:
                         break
-                    # Re-check ownership was already proven; keep snapshots public-safe.
                     await websocket.send_json(_public_snapshot(current))
                     if current.status.value in {"completed", "failed"}:
                         break
