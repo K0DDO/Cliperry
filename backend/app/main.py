@@ -52,7 +52,14 @@ def _register_middleware(app: FastAPI, settings: Settings) -> None:
         "allow_origins": settings.cors_origin_list,
         "allow_credentials": True,
         "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        "allow_headers": ["*"],
+        "allow_headers": [
+            "Accept",
+            "Content-Type",
+            "X-Device-Id",
+            "X-Client-Type",
+            "X-Request-Id",
+            "Authorization",
+        ],
         "expose_headers": ["X-Device-Id", "X-Request-Id"],
         "max_age": 600,
     }

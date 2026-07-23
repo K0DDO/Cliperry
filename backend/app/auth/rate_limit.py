@@ -39,12 +39,16 @@ def client_ip(request: Request, *, trust_proxy: bool = False) -> str:
     Extract client IP.
 
     ``X-Forwarded-For`` is only trusted when ``trust_proxy`` is enabled
-    (reverse proxy / load balancer deployments).
+    (reverse proxy / load balancer deployments). Prefer the rightmost
+    untrusted hop — leftmost values are client-spoofable.
     """
     if trust_proxy:
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            return forwarded.split(",")[0].strip() or "unknown"
+            parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+            if parts:
+                # Rightmost entry is typically added by the nearest proxy.
+                return parts[-1]
     if request.client:
         return request.client.host
     return "unknown"
