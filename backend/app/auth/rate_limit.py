@@ -8,6 +8,20 @@ from redis.asyncio import Redis
 from app.config import Settings
 from app.errors import rate_limited
 
+# Atomic INCR + EXPIRE (fixed window). Prevents orphan keys without TTL.
+_INCR_EXPIRE_LUA = """
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+else
+  local ttl = redis.call('TTL', KEYS[1])
+  if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+  end
+end
+return current
+"""
+
 
 class RateLimiter:
     """Fixed-window counter in Redis."""
@@ -26,12 +40,12 @@ class RateLimiter:
         """Increment counter and raise 429 when over limit."""
         window = window_seconds or self.settings.rate_limit_window_seconds
         redis_key = f"rl:{key}"
-        current = await self.redis.incr(redis_key)
-        if current == 1:
-            await self.redis.expire(redis_key, window)
+        current = int(
+            await self.redis.eval(_INCR_EXPIRE_LUA, 1, redis_key, str(window))
+        )
         if current > limit:
             ttl = await self.redis.ttl(redis_key)
-            raise rate_limited(retry_after=max(ttl, 1))
+            raise rate_limited(retry_after=max(int(ttl), 1))
 
 
 def client_ip(request: Request, *, trust_proxy: bool = False) -> str:

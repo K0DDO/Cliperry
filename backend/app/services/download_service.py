@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,7 +61,7 @@ class DownloadService:
         await self.session.flush()
 
         try:
-            async_result = download_media.delay(str(task.id))
+            async_result = await asyncio.to_thread(download_media.delay, str(task.id))
             task.celery_task_id = async_result.id
             await self.session.flush()
         except Exception as exc:  # noqa: BLE001
