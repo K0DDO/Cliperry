@@ -3,6 +3,8 @@ import {
   STORAGE_KEYS,
 } from "./types";
 
+export { DEFAULT_API_BASE_URL };
+
 function randomUuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

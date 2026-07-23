@@ -37,7 +37,7 @@ def _default_opts(**extra: Any) -> dict[str, Any]:
         "no_warnings": True,
         "noprogress": True,
         "ignoreerrors": False,
-        "noplaylist": False,
+        "noplaylist": True,
         "cachedir": False,
         "retries": 3,
     }

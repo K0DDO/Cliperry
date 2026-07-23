@@ -89,36 +89,30 @@ class AdminService:
 
         users = (
             await self.session.execute(
-                select(User).order_by(User.created_at.desc()).offset(offset).limit(page_size)
+                select(
+                    User,
+                    func.count(Device.id.distinct()).label("devices_count"),
+                    func.count(Download.id.distinct()).label("downloads_count"),
+                )
+                .outerjoin(Device, Device.user_id == User.id)
+                .outerjoin(Download, Download.user_id == User.id)
+                .group_by(User.id)
+                .order_by(User.created_at.desc())
+                .offset(offset)
+                .limit(page_size)
             )
-        ).scalars().all()
+        ).all()
 
         items: list[AdminUserItem] = []
-        for user in users:
-            devices_count = int(
-                (
-                    await self.session.execute(
-                        select(func.count()).select_from(Device).where(Device.user_id == user.id)
-                    )
-                ).scalar_one()
-            )
-            downloads_count = int(
-                (
-                    await self.session.execute(
-                        select(func.count())
-                        .select_from(Download)
-                        .where(Download.user_id == user.id)
-                    )
-                ).scalar_one()
-            )
+        for user, devices_count, downloads_count in users:
             items.append(
                 AdminUserItem(
                     id=user.id,
                     telegram_id=user.telegram_id,
                     is_active=user.is_active,
                     created_at=user.created_at,
-                    devices_count=devices_count,
-                    downloads_count=downloads_count,
+                    devices_count=int(devices_count or 0),
+                    downloads_count=int(downloads_count or 0),
                 )
             )
 

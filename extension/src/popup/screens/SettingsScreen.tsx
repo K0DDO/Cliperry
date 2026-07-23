@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  DEFAULT_API_BASE_URL,
   getApiBaseUrl,
   getDefaultQuality,
   getOrCreateDeviceId,
@@ -12,7 +13,7 @@ const QUALITIES = ["1080p", "720p", "480p", "audio"] as const;
 
 export function SettingsScreen() {
   const [quality, setQuality] = useState("720p");
-  const [apiUrl, setApiUrl] = useState("http://localhost:8000");
+  const [apiUrl, setApiUrl] = useState(DEFAULT_API_BASE_URL);
   const [deviceId, setDeviceId] = useState("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);

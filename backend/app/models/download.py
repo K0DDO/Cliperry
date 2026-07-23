@@ -6,7 +6,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,9 @@ class Download(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
     """A single download request recorded for history and analytics."""
 
     __tablename__ = "downloads"
+    __table_args__ = (
+        Index("ix_downloads_device_created", "device_id", "created_at"),
+    )
 
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

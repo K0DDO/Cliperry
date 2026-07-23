@@ -48,7 +48,7 @@
         <td>{{ err.title or '—' }}</td>
         <td>{{ err.platform or '—' }}</td>
         <td>{{ err.error_message or '—' }}</td>
-        <td class="muted">{{ err.created_at }}</td>
+        <td class="muted">{% if err.created_at %}{{ err.created_at.strftime('%d.%m.%Y %H:%M') }}{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
