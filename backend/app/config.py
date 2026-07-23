@@ -85,10 +85,18 @@ class Settings(BaseSettings):
 
     # --- Integrations ---
     telegram_bot_token: str = ""
+    # Public base URL for download links (IP or domain). Used by worker/Telegram messages.
     backend_public_url: str = "http://localhost:8000"
+    # Optional: bot → API over Docker network (defaults to backend_public_url).
+    backend_internal_url: str = ""
     admin_username: str = "admin"
     admin_password: str = "change-me"
     enable_worker_test: bool = True
+
+    @property
+    def backend_api_base_url(self) -> str:
+        """URL the Telegram bot uses to call the FastAPI backend."""
+        return (self.backend_internal_url or self.backend_public_url).rstrip("/")
 
     @field_validator("log_level", mode="before")
     @classmethod

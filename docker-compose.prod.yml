@@ -95,9 +95,8 @@ services:
       TRUST_PROXY_HEADERS: "true"
       ENABLE_WORKER_TEST: "false"
     ports:
-      # Bind loopback only — put Caddy/nginx in front for public TLS
-      # Default 8001 to avoid clash with other apps on shared VPS (e.g. Briefly on 8000)
-      - "127.0.0.1:${BACKEND_HOST_PORT:-8001}:8000"
+      # Default bind 127.0.0.1. Set BACKEND_BIND_HOST=0.0.0.0 when no reverse proxy/domain.
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_HOST_PORT:-8001}:8000"
     volumes:
       - temp_data:/tmp/cliperry
       - cookies_data:/app/cookies:ro
@@ -236,6 +235,7 @@ services:
       DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
       REDIS_URL: redis://redis:6379/0
       BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
       ENABLE_WORKER_TEST: "false"
     entrypoint: ["/app/scripts/entrypoint-bot.sh"]
     command: ["python", "-m", "app.bot"]

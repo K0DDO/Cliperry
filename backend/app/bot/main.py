@@ -28,7 +28,7 @@ async def main() -> None:
         logger.error("TELEGRAM_BOT_TOKEN is not set")
         sys.exit(1)
 
-    backend_url = settings.backend_public_url
+    backend_url = settings.backend_api_base_url
     api = BackendClient(backend_url, settings.redis_url)
     store = BotStore(settings.redis_url)
 

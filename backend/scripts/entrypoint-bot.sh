@@ -8,7 +8,11 @@ import sys
 import time
 import urllib.request
 
-url = os.environ.get("BACKEND_PUBLIC_URL", "http://backend:8000").rstrip("/") + "/health"
+url = (
+    os.environ.get("BACKEND_INTERNAL_URL")
+    or os.environ.get("BACKEND_PUBLIC_URL")
+    or "http://backend:8000"
+).rstrip("/") + "/health"
 
 for attempt in range(60):
     try:
