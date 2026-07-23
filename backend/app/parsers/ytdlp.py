@@ -32,6 +32,7 @@ def _auth_opts() -> dict[str, Any]:
 
 
 def _default_opts(**extra: Any) -> dict[str, Any]:
+    settings = get_settings()
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -40,6 +41,7 @@ def _default_opts(**extra: Any) -> dict[str, Any]:
         "noplaylist": True,
         "cachedir": False,
         "retries": 3,
+        "max_filesize": settings.download_max_filesize_bytes,
     }
     opts.update(_auth_opts())
     opts.update(extra)
@@ -86,11 +88,27 @@ def download_sync(
     """
     from pathlib import Path
 
+    settings = get_settings()
+    max_bytes = settings.download_max_filesize_bytes
+
+    # Preflight: reject huge files before writing to disk.
+    try:
+        meta = extract_info_sync(url, flat=False)
+    except YtDlpError:
+        meta = None
+    if isinstance(meta, dict):
+        filesize = meta.get("filesize") or meta.get("filesize_approx")
+        if filesize and int(filesize) > max_bytes:
+            raise YtDlpError(
+                f"File too large ({int(filesize)} bytes > {max_bytes} limit)"
+            )
+
     opts = _default_opts(
         format=format_selector,
         outtmpl=output_template,
         noplaylist=True,
         merge_output_format="mp4",
+        max_filesize=max_bytes,
     )
     if progress_hook is not None:
         opts["progress_hooks"] = [progress_hook]
@@ -108,6 +126,11 @@ def download_sync(
                     if alt.exists():
                         return str(alt.resolve())
                 raise YtDlpError(f"Downloaded file not found near {path}")
+            # Post-check in case approx was missing
+            size = candidate.stat().st_size
+            if size > max_bytes:
+                candidate.unlink(missing_ok=True)
+                raise YtDlpError(f"Downloaded file exceeds size limit ({max_bytes})")
             return str(candidate.resolve())
     except YtDlpError:
         raise

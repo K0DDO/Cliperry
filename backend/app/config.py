@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # --- Temporary storage ---
     temp_dir: str = "/tmp/cliperry"
     temp_file_ttl_seconds: int = 1800
+    # Soft cap for yt-dlp downloads (bytes). Default 2 GiB.
+    download_max_filesize_bytes: int = 2 * 1024 * 1024 * 1024
 
     # --- yt-dlp (YouTube bot checks often need cookies on VPS/datacenter IPs) ---
     ytdlp_cookies_from_browser: str = ""
@@ -72,6 +74,9 @@ class Settings(BaseSettings):
     rate_limit_admin_login: int = 10
     rate_limit_ip_global: int = 180
     rate_limit_window_seconds: int = 60
+    rate_limit_ws: int = 30
+    ws_max_session_seconds: int = 900
+    ws_db_fallback_seconds: int = 10
 
     # --- CORS (comma-separated origins) ---
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

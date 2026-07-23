@@ -32,6 +32,8 @@ def _client_error_message(exc: Exception) -> str:
         return "Видео недоступно (приватное или требует вход)"
     if "age" in text or "confirm" in text:
         return "Видео недоступно (возрастное ограничение)"
+    if "too large" in text or "filesize" in text or "size limit" in text:
+        return "Файл слишком большой для загрузки"
     if "unavailable" in text or "removed" in text or "not found" in text:
         return "Видео недоступно или удалено"
     return "Не удалось скачать видео"
