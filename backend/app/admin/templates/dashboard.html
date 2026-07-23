@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+<p class="lead">Users, downloads, active tasks and recent errors.</p>
+
+<div class="grid grid-4" style="margin-bottom:14px">
+  <div class="card stat">
+    <h3>Users</h3>
+    <strong>{{ stats.users_total }}</strong>
+    <span>{{ stats.users_active }} active · {{ stats.users_blocked }} blocked</span>
+  </div>
+  <div class="card stat">
+    <h3>Downloads</h3>
+    <strong>{{ stats.downloads_total }}</strong>
+    <span>{{ stats.downloads_completed }} done · {{ stats.downloads_failed }} failed</span>
+  </div>
+  <div class="card stat">
+    <h3>Active tasks</h3>
+    <strong>{{ stats.tasks_active }}</strong>
+    <span>{{ stats.tasks_queued }} queued · {{ stats.tasks_processing }} processing</span>
+  </div>
+  <div class="card stat">
+    <h3>Errors</h3>
+    <strong>{{ stats.errors_total }}</strong>
+    <span>failed tasks total</span>
+  </div>
+</div>
+
+<div class="card">
+  <h1 style="font-size:20px;margin-bottom:12px">Recent errors</h1>
+  {% if not recent_errors %}
+    <p class="muted">No failed tasks yet.</p>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Title</th>
+        <th>Platform</th>
+        <th>Error</th>
+        <th>When</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for err in recent_errors %}
+      <tr>
+        <td class="mono">{{ err.task_id | string | truncate(8, True, '') }}</td>
+        <td>{{ err.title or '—' }}</td>
+        <td>{{ err.platform or '—' }}</td>
+        <td>{{ err.error_message or '—' }}</td>
+        <td class="muted">{{ err.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

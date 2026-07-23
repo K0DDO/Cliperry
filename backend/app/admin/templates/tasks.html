@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Tasks</h1>
+<p class="lead">Очередь загрузок и статусы задач.</p>
+
+<div class="filters">
+  <a href="/admin/tasks" class="{{ 'active' if not status_filter else '' }}">All</a>
+  <a href="/admin/tasks?status=queued" class="{{ 'active' if status_filter == 'queued' else '' }}">Queued</a>
+  <a href="/admin/tasks?status=processing" class="{{ 'active' if status_filter == 'processing' else '' }}">Processing</a>
+  <a href="/admin/tasks?status=completed" class="{{ 'active' if status_filter == 'completed' else '' }}">Completed</a>
+  <a href="/admin/tasks?status=failed" class="{{ 'active' if status_filter == 'failed' else '' }}">Failed</a>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Title</th>
+        <th>Platform</th>
+        <th>Quality</th>
+        <th>Status</th>
+        <th>Progress</th>
+        <th>Error</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for task in data.items %}
+      <tr>
+        <td class="mono">{{ task.id | string | truncate(8, True, '') }}</td>
+        <td>{{ task.title or '—' }}</td>
+        <td>{{ task.platform or '—' }}</td>
+        <td>{{ task.quality or '—' }}</td>
+        <td>
+          {% if task.status == 'completed' %}
+            <span class="pill pill-ok">{{ task.status }}</span>
+          {% elif task.status == 'failed' %}
+            <span class="pill pill-err">{{ task.status }}</span>
+          {% elif task.status in ['queued', 'processing'] %}
+            <span class="pill pill-warn">{{ task.status }}</span>
+          {% else %}
+            <span class="pill pill-muted">{{ task.status }}</span>
+          {% endif %}
+        </td>
+        <td>{{ task.progress }}%{% if task.speed %} · {{ task.speed }}{% endif %}</td>
+        <td class="muted">{{ task.error_message or '—' }}</td>
+        <td class="muted">{{ task.created_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="muted">Задач пока нет.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% set pages = ((data.total + data.page_size - 1) // data.page_size) if data.total else 0 %}
+  {% if pages > 1 %}
+  <div class="pager">
+    {% set q = ('&status=' ~ status_filter) if status_filter else '' %}
+    {% if data.page > 1 %}
+      <a href="/admin/tasks?page={{ data.page - 1 }}{{ q }}">Prev</a>
+    {% endif %}
+    <span>стр. {{ data.page }} / {{ pages }} · всего {{ data.total }}</span>
+    {% if data.page < pages %}
+      <a href="/admin/tasks?page={{ data.page + 1 }}{{ q }}">Next</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,183 @@
+# Cliperry — local / default compose
+# For production hardening use: docker compose -f docker-compose.prod.yml up -d
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+    tag: "{{.Name}}"
+
+x-restart: &default-restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cliperry-postgres
+    <<: *default-restart
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cliperry}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cliperry}
+      POSTGRES_DB: ${POSTGRES_DB:-cliperry}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-cliperry} -d ${POSTGRES_DB:-cliperry}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: cliperry-redis
+    <<: *default-restart
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--save",
+        "60",
+        "1000",
+      ]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    logging: *default-logging
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: cliperry-backend:latest
+    container_name: cliperry-backend
+    <<: *default-restart
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TEMP_DIR: /tmp/cliperry
+    ports:
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    volumes:
+      - temp_data:/tmp/cliperry
+      - cookies_data:/app/cookies
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    logging: *default-logging
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: cliperry-backend:latest
+    container_name: cliperry-worker
+    <<: *default-restart
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TEMP_DIR: /tmp/cliperry
+    entrypoint: ["/app/scripts/entrypoint-worker.sh"]
+    command:
+      [
+        "celery",
+        "-A",
+        "app.workers.celery_app.celery_app",
+        "worker",
+        "--loglevel=${CELERY_LOG_LEVEL:-INFO}",
+        "--queues=cliperry,downloads",
+        "--concurrency=${CELERY_CONCURRENCY:-2}",
+      ]
+    volumes:
+      - temp_data:/tmp/cliperry
+      - cookies_data:/app/cookies
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scripts/celery-health.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: cliperry-backend:latest
+    container_name: cliperry-bot
+    <<: *default-restart
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://backend:8000}
+    entrypoint: ["/app/scripts/entrypoint-bot.sh"]
+    command: ["python", "-m", "app.bot"]
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os,redis; redis.Redis.from_url(os.environ['REDIS_URL']).ping()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  temp_data:
+  cookies_data:

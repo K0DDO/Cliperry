@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cliperry-test-postgres
+    environment:
+      POSTGRES_USER: cliperry
+      POSTGRES_PASSWORD: cliperry
+      POSTGRES_DB: cliperry
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cliperry -d cliperry"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: cliperry-test-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: cliperry-test-worker
+    environment: &test-env
+      APP_ENV: test
+      DEBUG: "true"
+      SECRET_KEY: integration-test-secret-key-32chars!
+      ADMIN_PASSWORD: integration-admin-password
+      DATABASE_URL: postgresql+asyncpg://cliperry:cliperry@postgres:5432/cliperry
+      DATABASE_URL_SYNC: postgresql+psycopg2://cliperry:cliperry@postgres:5432/cliperry
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      ENABLE_WORKER_TEST: "true"
+      TRUST_PROXY_HEADERS: "false"
+      PYTHONPATH: /app
+    entrypoint: ["/app/scripts/entrypoint-worker.sh"]
+    command:
+      [
+        "celery",
+        "-A",
+        "app.workers.celery_app.celery_app",
+        "worker",
+        "--loglevel=info",
+        "--queues=cliperry,downloads",
+        "--concurrency=1",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: test
+    container_name: cliperry-testrunner
+    environment:
+      <<: *test-env
+    working_dir: /app
+    command:
+      [
+        "pytest",
+        "-q",
+        "--maxfail=1",
+        "-m",
+        "unit or integration",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started

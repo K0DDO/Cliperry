@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Users</h1>
+<p class="lead">Список пользователей и блокировка доступа.</p>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Telegram</th>
+        <th>Status</th>
+        <th>Devices</th>
+        <th>Downloads</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in data.items %}
+      <tr>
+        <td class="mono">{{ user.id | string | truncate(8, True, '') }}</td>
+        <td>{{ user.telegram_id or '—' }}</td>
+        <td>
+          {% if user.is_active %}
+            <span class="pill pill-ok">active</span>
+          {% else %}
+            <span class="pill pill-err">blocked</span>
+          {% endif %}
+        </td>
+        <td>{{ user.devices_count }}</td>
+        <td>{{ user.downloads_count }}</td>
+        <td class="muted">{{ user.created_at }}</td>
+        <td>
+          {% if user.is_active %}
+          <form class="inline" method="post" action="/admin/users/{{ user.id }}/block">
+            <input type="hidden" name="blocked" value="1" />
+            <button class="btn btn-danger" type="submit">Block</button>
+          </form>
+          {% else %}
+          <form class="inline" method="post" action="/admin/users/{{ user.id }}/block">
+            <input type="hidden" name="blocked" value="0" />
+            <button class="btn btn-ok" type="submit">Unblock</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">Пользователей пока нет.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% set pages = ((data.total + data.page_size - 1) // data.page_size) if data.total else 0 %}
+  {% if pages > 1 %}
+  <div class="pager">
+    {% if data.page > 1 %}
+      <a href="/admin/users?page={{ data.page - 1 }}">Prev</a>
+    {% endif %}
+    <span>стр. {{ data.page }} / {{ pages }}</span>
+    {% if data.page < pages %}
+      <a href="/admin/users?page={{ data.page + 1 }}">Next</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

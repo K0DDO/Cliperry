@@ -1,0 +1,32 @@
+.cliperry-hint {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b1418;
+  background: linear-gradient(135deg, #ffe8ec 0%, #ffd0d8 55%, #ffc2b0 100%);
+  border: 1px solid rgba(190, 48, 72, 0.22);
+  box-shadow: 0 10px 28px rgba(120, 24, 40, 0.18);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+}
+
+.cliperry-hint--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.cliperry-hint__mark {
+  font-size: 15px;
+  line-height: 1;
+}

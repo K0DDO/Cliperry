@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="shell">
+  <div class="top">
+    <div class="brand">
+      <span class="brand__mark">🍓</span>
+      <div>
+        <div class="brand__name">{{ app_name }}</div>
+        <div class="brand__sub">Admin · {{ admin }}</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/admin" class="{{ 'active' if nav == 'dashboard' else '' }}">Dashboard</a>
+      <a href="/admin/users" class="{{ 'active' if nav == 'users' else '' }}">Users</a>
+      <a href="/admin/tasks" class="{{ 'active' if nav == 'tasks' else '' }}">Tasks</a>
+      <form class="inline" method="post" action="/admin/logout">
+        <button class="btn btn-ghost" type="submit">Logout</button>
+      </form>
+    </nav>
+  </div>
+  {% block content %}{% endblock %}
+</div>
+{% endblock %}

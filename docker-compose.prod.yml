@@ -1,0 +1,228 @@
+# Cliperry — production compose
+#
+# Usage:
+#   cp .env.production.example .env
+#   # fill secrets, then:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Postgres/Redis are internal-only (no host ports).
+# Put a reverse proxy (nginx/Caddy/Traefik) in front of backend:8000.
+
+x-logging: &prod-logging
+  driver: json-file
+  options:
+    max-size: "25m"
+    max-file: "7"
+    compress: "true"
+    tag: "cliperry/{{.Name}}"
+
+x-restart: &prod-restart
+  restart: always
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cliperry-postgres
+    <<: *prod-restart
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cliperry}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB:-cliperry}",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *prod-logging
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: cliperry-redis
+    <<: *prod-restart
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--save",
+        "60",
+        "1000",
+        "--maxmemory",
+        "${REDIS_MAXMEMORY:-256mb}",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    logging: *prod-logging
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: ${CLIPERRY_IMAGE:-cliperry-backend:latest}
+    container_name: cliperry-backend
+    <<: *prod-restart
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TEMP_DIR: /tmp/cliperry
+      TRUST_PROXY_HEADERS: "true"
+      ENABLE_WORKER_TEST: "false"
+    ports:
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    volumes:
+      - temp_data:/tmp/cliperry
+      - cookies_data:/app/cookies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging: *prod-logging
+    networks:
+      - internal
+      - edge
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: ${CLIPERRY_IMAGE:-cliperry-backend:latest}
+    container_name: cliperry-worker
+    <<: *prod-restart
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TEMP_DIR: /tmp/cliperry
+      ENABLE_WORKER_TEST: "false"
+    entrypoint: ["/app/scripts/entrypoint-worker.sh"]
+    command:
+      [
+        "celery",
+        "-A",
+        "app.workers.celery_app.celery_app",
+        "worker",
+        "--loglevel=${CELERY_LOG_LEVEL:-WARNING}",
+        "--queues=cliperry,downloads",
+        "--concurrency=${CELERY_CONCURRENCY:-2}",
+        "--max-tasks-per-child=${CELERY_MAX_TASKS_PER_CHILD:-50}",
+      ]
+    volumes:
+      - temp_data:/tmp/cliperry
+      - cookies_data:/app/cookies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scripts/celery-health.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    logging: *prod-logging
+    networks:
+      - internal
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: ${CLIPERRY_IMAGE:-cliperry-backend:latest}
+    container_name: cliperry-bot
+    <<: *prod-restart
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL}
+      ENABLE_WORKER_TEST: "false"
+    entrypoint: ["/app/scripts/entrypoint-bot.sh"]
+    command: ["python", "-m", "app.bot"]
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os,redis; redis.Redis.from_url(os.environ['REDIS_URL']).ping()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging: *prod-logging
+    networks:
+      - internal
+    profiles: ["bot"]
+
+volumes:
+  postgres_data:
+    name: cliperry_postgres_data
+  redis_data:
+    name: cliperry_redis_data
+  temp_data:
+    name: cliperry_temp_data
+  cookies_data:
+    name: cliperry_cookies_data
+
+networks:
+  # App network (no host ports on postgres/redis). Outbound internet enabled
+  # so worker (yt-dlp) and bot (Telegram) can reach external APIs.
+  internal:
+    name: cliperry_internal
+    driver: bridge
+  edge:
+    name: cliperry_edge
+    driver: bridge

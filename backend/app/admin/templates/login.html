@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="login-wrap">
+  <div class="card login-card">
+    <div class="brand" style="margin-bottom:18px">
+      <span class="brand__mark">🍓</span>
+      <div>
+        <div class="brand__name">{{ app_name }}</div>
+        <div class="brand__sub">Admin access</div>
+      </div>
+    </div>
+    {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login">
+      <input type="hidden" name="next" value="{{ next }}" />
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button class="btn btn-berry" type="submit" style="width:100%">Sign in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
