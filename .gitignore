@@ -21,6 +21,8 @@ htmlcov/
 .env.local
 .env.production
 .env.*.local
+cookies.txt
+**/cookies.txt
 
 # IDE
 .idea/

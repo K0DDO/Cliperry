@@ -47,7 +47,9 @@ export const DEFAULT_API_BASE_URL =
 
 export const READY_PLATFORMS = [
   { id: "youtube", label: "YouTube", hostHint: "youtube.com" },
+  { id: "tiktok", label: "TikTok", hostHint: "tiktok.com" },
+  { id: "instagram", label: "Instagram", hostHint: "instagram.com" },
 ] as const;
 
-/** Shown in UI — YouTube-only soft-launch. */
+/** Shown in UI — currently ready platforms. */
 export const SUPPORTED_PLATFORMS = [...READY_PLATFORMS] as const;

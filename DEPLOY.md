@@ -1,7 +1,7 @@
 # Cliperry — production deploy (shared VPS)
 
 Стек: FastAPI + Postgres + Redis + Celery (+ Beat) + опционально Telegram-бот.  
-Платформа: **YouTube only** (soft-launch).
+Платформа: **YouTube + TikTok + Instagram**.
 
 Репозиторий: https://github.com/K0DDO/Cliperry
 

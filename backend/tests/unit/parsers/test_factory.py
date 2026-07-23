@@ -1,4 +1,4 @@
-"""Unit: ParserFactory routing and stub parsers."""
+"""Unit: ParserFactory routing."""
 
 from __future__ import annotations
 
@@ -20,9 +20,13 @@ pytestmark = [pytest.mark.unit, pytest.mark.parsers]
         ("https://www.youtube.com/watch?v=abc", "youtube", YoutubeParser),
         ("https://youtu.be/abc", "youtube", YoutubeParser),
         ("https://www.youtube.com/shorts/abc", "youtube", YoutubeParser),
+        ("https://www.tiktok.com/@user/video/123", "tiktok", TikTokParser),
+        ("https://vm.tiktok.com/ZMabc/", "tiktok", TikTokParser),
+        ("https://www.instagram.com/reel/abc/", "instagram", InstagramParser),
+        ("https://www.instagram.com/p/abc/", "instagram", InstagramParser),
     ],
 )
-def test_factory_detects_youtube(url: str, platform: str, parser_cls: type) -> None:
+def test_factory_detects_ready_platforms(url: str, platform: str, parser_cls: type) -> None:
     factory = ParserFactory()
     parser = factory.get_parser(url)
     assert parser.platform == platform
@@ -33,38 +37,24 @@ def test_factory_detects_youtube(url: str, platform: str, parser_cls: type) -> N
 @pytest.mark.parametrize(
     "url",
     [
-        "https://www.tiktok.com/@user/video/123",
-        "https://www.instagram.com/reel/abc/",
         "https://twitter.com/user/status/123",
         "https://x.com/user/status/123",
         "https://example.com/video",
     ],
 )
-def test_factory_rejects_unready_or_unknown(url: str) -> None:
+def test_factory_rejects_unknown(url: str) -> None:
     factory = ParserFactory()
     with pytest.raises(UnsupportedPlatformError):
         factory.get_parser(url)
 
 
-def test_factory_lists_ready_platforms_only() -> None:
+def test_factory_lists_ready_platforms() -> None:
     factory = ParserFactory()
-    platforms = factory.list_platforms()
-    assert platforms == ["youtube"]
-
-
-def test_factory_can_register_stub_later() -> None:
-    factory = ParserFactory()
-    factory.register(TikTokParser)
-    parser = factory.get_parser("https://www.tiktok.com/@user/video/123")
-    assert isinstance(parser, TikTokParser)
+    assert factory.list_platforms() == ["youtube", "tiktok", "instagram"]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "parser_cls",
-    [TikTokParser, InstagramParser, TwitterParser],
-)
-async def test_stub_parsers_not_implemented(parser_cls: type) -> None:
-    parser = parser_cls()
+async def test_twitter_stub_still_not_implemented() -> None:
+    parser = TwitterParser()
     with pytest.raises(ParserNotImplementedError):
-        await parser.analyze("https://example.com/x")
+        await parser.analyze("https://x.com/user/status/1")

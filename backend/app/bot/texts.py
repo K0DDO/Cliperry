@@ -7,9 +7,7 @@ WELCOME = (
     "\n"
     "Универсальный загрузчик видео.\n"
     "\n"
-    "Отправьте ссылку на YouTube / Shorts.\n"
-    "\n"
-    "TikTok, Instagram и X — скоро.\n"
+    "Отправьте ссылку на YouTube / Shorts, TikTok или Instagram.\n"
     "\n"
     "Я покажу превью и доступные качества."
 )

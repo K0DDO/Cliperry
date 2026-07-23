@@ -2,7 +2,7 @@
 
 Universal video downloader — **Telegram bot** + **Chrome extension**, powered by FastAPI.
 
-**Soft-launch:** YouTube / Shorts only. TikTok / Instagram / X — later.
+**Soft-launch:** YouTube / Shorts, TikTok, Instagram. X — later.
 
 ## Stack
 
