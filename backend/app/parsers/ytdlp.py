@@ -56,6 +56,12 @@ def _default_opts(**extra: Any) -> dict[str, Any]:
         "cachedir": False,
         "retries": 3,
         "max_filesize": settings.download_max_filesize_bytes,
+        # Android/TV clients avoid many web JS challenges on datacenter IPs.
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "tv", "web"],
+            }
+        },
     }
     opts.update(_auth_opts())
     opts.update(extra)
