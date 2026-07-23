@@ -142,6 +142,41 @@ services:
       start_period: 40s
     logging: *default-logging
 
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: cliperry-backend:latest
+    container_name: cliperry-beat
+    <<: *default-restart
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-cliperry}:${POSTGRES_PASSWORD:-cliperry}@postgres:5432/${POSTGRES_DB:-cliperry}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      TEMP_DIR: /tmp/cliperry
+    entrypoint: ["/app/scripts/entrypoint-worker.sh"]
+    command:
+      [
+        "celery",
+        "-A",
+        "app.workers.celery_app.celery_app",
+        "beat",
+        "--loglevel=${CELERY_LOG_LEVEL:-INFO}",
+      ]
+    volumes:
+      - temp_data:/tmp/cliperry
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    logging: *default-logging
+
   bot:
     build:
       context: ./backend

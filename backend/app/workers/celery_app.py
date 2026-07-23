@@ -21,6 +21,7 @@ def create_celery_app() -> Celery:
         include=[
             "app.workers.test_tasks",
             "app.workers.download_tasks",
+            "app.workers.cleanup_tasks",
         ],
     )
 
@@ -34,10 +35,19 @@ def create_celery_app() -> Celery:
         task_acks_late=True,
         worker_prefetch_multiplier=1,
         result_expires=3600,
+        task_soft_time_limit=600,
+        task_time_limit=660,
         task_default_queue=DEFAULT_QUEUE,
         task_routes={
             "cliperry.test_task": {"queue": DEFAULT_QUEUE},
             "cliperry.download": {"queue": DOWNLOAD_QUEUE},
+            "cliperry.cleanup_storage": {"queue": DEFAULT_QUEUE},
+        },
+        beat_schedule={
+            "cleanup-expired-files": {
+                "task": "cliperry.cleanup_storage",
+                "schedule": 900.0,
+            },
         },
         broker_connection_retry_on_startup=True,
     )

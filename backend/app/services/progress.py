@@ -17,6 +17,7 @@ from app.models.task import Task, TaskStatus
 logger = logging.getLogger("cliperry.progress")
 
 PROGRESS_CHANNEL_PREFIX = "cliperry:task:"
+_sync_redis_pool: redis.ConnectionPool | None = None
 
 
 def progress_channel(task_id: str | UUID) -> str:
@@ -24,8 +25,15 @@ def progress_channel(task_id: str | UUID) -> str:
 
 
 def _sync_redis() -> redis.Redis:
+    global _sync_redis_pool
     settings = get_settings()
-    return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+    if _sync_redis_pool is None:
+        _sync_redis_pool = redis.ConnectionPool.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            max_connections=32,
+        )
+    return redis.Redis(connection_pool=_sync_redis_pool)
 
 
 def publish_progress(task_id: str | UUID, payload: dict[str, Any]) -> None:
