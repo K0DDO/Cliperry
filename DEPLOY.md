@@ -1,202 +1,220 @@
-# Cliperry — полный гайд по запуску и деплою
+# Cliperry — production deploy (shared VPS)
 
 Стек: FastAPI + Postgres + Redis + Celery (+ Beat) + опционально Telegram-бот.  
-Платформа сейчас: **YouTube only** (soft-launch).
-
-Автодеплой:
-
-```text
-git push main → GitHub Actions → build GHCR → rsync на VPS → docker compose → /ready
-```
+Платформа: **YouTube only** (soft-launch).
 
 Репозиторий: https://github.com/K0DDO/Cliperry
+
+```text
+GitHub Actions → SSH as deploy → /opt/cliperry only →
+  git pull → pg_dump backup → alembic → build/up app → healthcheck
+```
+
+На одном VPS могут жить другие проекты (`/opt/briefly`, `/opt/moex-bot`, Amnezia VPN).  
+**CI/CD трогает только Cliperry** в `/opt/cliperry` и никогда не выполняет `docker compose down` / `prune` / firewall / systemd чужих сервисов.
 
 ---
 
 ## Содержание
 
-1. [Что нужно](#1-что-нужно)
-2. [Подготовка VPS](#2-подготовка-vps)
-3. [Docker](#3-docker)
-4. [Первый деплой кода](#4-первый-деплой-кода)
-5. [Файл `.env`](#5-файл-env)
-6. [Reverse proxy + TLS (Caddy)](#6-reverse-proxy--tls-caddy)
-7. [Первый запуск стека](#7-первый-запуск-стека)
-8. [Проверки](#8-проверки)
-9. [Telegram-бот](#9-telegram-бот)
-10. [Chrome Extension](#10-chrome-extension)
-11. [Автодеплой GitHub Actions](#11-автодеплой-github-actions)
-12. [Обновления и откат](#12-обновления-и-откат)
-13. [Бэкапы и логи](#13-бэкапы-и-логи)
-14. [Чеклист go-live](#14-чеклист-go-live)
-15. [Типичные проблемы](#15-типичные-проблемы)
+1. [Изоляция на shared VPS](#1-изоляция-на-shared-vps)
+2. [Пользователь deploy](#2-пользователь-deploy)
+3. [SSH-ключ и GitHub Secrets](#3-ssh-ключ-и-github-secrets)
+4. [Первый запуск на сервере](#4-первый-запуск-на-сервере)
+5. [Файл `.env.production`](#5-файл-envproduction)
+6. [Reverse proxy (Caddy)](#6-reverse-proxy-caddy)
+7. [GitHub Actions](#7-github-actions)
+8. [Ручной деплой / откат](#8-ручной-деплой--откат)
+9. [Проверки](#9-проверки)
+10. [Что запрещено](#10-что-запрещено)
 
 ---
 
-## 1. Что нужно
+## 1. Изоляция на shared VPS
 
-| Вещь | Зачем |
+| Путь / сервис | Владелец CI |
 |---|---|
-| VPS Ubuntu 22.04/24.04 | ≥ 2 GB RAM, 2 CPU, 40 GB SSD |
-| Домен | например `api.yourdomain.com` → A-запись на IP VPS |
-| GitHub-репозиторий | уже есть: `K0DDO/Cliperry` |
-| SSH-доступ к VPS | для ручного деплоя и CD |
-| (опционально) Telegram BotFather token | бот |
-| (опционально) cookies YouTube | если VPS IP режется YouTube |
+| `/opt/cliperry` | **да** — только этот проект |
+| `/opt/briefly` | нет |
+| `/opt/moex-bot` | нет |
+| Amnezia VPN контейнеры | нет |
+| Другие Docker-сети / volumes | нет |
 
-Локально для разработки достаточно `docker compose up` (не prod).
+Workflow: `.github/workflows/deploy.yml`  
+Скрипт на сервере: `scripts/vps-deploy.sh` (cwd жёстко `/opt/cliperry`).
 
 ---
 
-## 2. Подготовка VPS
+## 2. Пользователь `deploy`
 
-Зайди по SSH:
+Один раз под `root` (или существующим админом):
 
-```bash
-ssh root@YOUR_VPS_IP
-```
-
-Создай пользователя для деплоя (не работай постоянно из root):
+### 2.1 Создать пользователя
 
 ```bash
-adduser deploy
-usermod -aG sudo deploy
-# если используешь ключи — скопируй свой pubkey в /home/deploy/.ssh/authorized_keys
-su - deploy
+adduser --disabled-password --gecos "" deploy
+usermod -aG docker deploy
 ```
 
-Создай каталог приложения:
+Пароль для `deploy` **не задаём** — только SSH-ключ.
+
+### 2.2 Каталог проекта
 
 ```bash
-sudo mkdir -p /opt/cliperry /opt/cliperry/backups
-sudo chown -R deploy:deploy /opt/cliperry
+mkdir -p /opt/cliperry /opt/cliperry/backups
+chown -R deploy:deploy /opt/cliperry
 ```
 
-Открой порты (UFW):
+### 2.3 SSH только по ключу
+
+На **локальной** машине (откуда будешь класть ключ в GitHub):
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
-sudo ufw status
+ssh-keygen -t ed25519 -f cliperry_deploy -C "cliperry-github-actions" -N ""
 ```
 
-**Важно:** порт `8000` наружу **не открывай** — backend слушает только `127.0.0.1:8000`.
+Появятся:
 
-DNS: у регистратора домена создай A-запись:
+- `cliperry_deploy` — **приватный** ключ → GitHub Secret `VPS_SSH_KEY`
+- `cliperry_deploy.pub` — **публичный** → на сервер
+
+На сервере:
+
+```bash
+mkdir -p /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+# вставь содержимое cliperry_deploy.pub одной строкой:
+nano /home/deploy/.ssh/authorized_keys
+chmod 600 /home/deploy/.ssh/authorized_keys
+chown -R deploy:deploy /home/deploy/.ssh
+```
+
+В `/etc/ssh/sshd_config` (или drop-in) желательно:
 
 ```text
-api.yourdomain.com  →  YOUR_VPS_IP
+PasswordAuthentication no
+PubkeyAuthentication yes
 ```
+
+Затем:
+
+```bash
+systemctl reload ssh
+```
+
+### 2.4 Проверка подключения
+
+С локальной машины:
+
+```bash
+ssh -i cliperry_deploy deploy@107.172.44.182
+whoami   # → deploy
+id -nG   # → ... docker ...
+cd /opt/cliperry && pwd
+docker ps
+```
+
+Если `docker` без sudo работает и cwd `/opt/cliperry` — готово.
 
 ---
 
-## 3. Docker
+## 3. SSH-ключ и GitHub Secrets
 
-Под пользователем `deploy` (или с `sudo`):
+В репозитории: **Settings → Secrets and variables → Actions**.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl git rsync
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo usermod -aG docker deploy
-```
+| Secret | Значение |
+|---|---|
+| `VPS_HOST` | `107.172.44.182` (или домен) |
+| `VPS_USER` | `deploy` |
+| `VPS_SSH_KEY` | весь приватный ключ `cliperry_deploy`, включая `-----BEGIN … KEY-----` / `-----END …-----` |
 
-Выйди из SSH и зайди снова, затем:
+Опционально:
 
-```bash
-docker version
-docker compose version
-```
+| Secret / Variable | Назначение |
+|---|---|
+| `VPS_HOST_KEY` | pinned host key (вместо `ssh-keyscan`) |
+| Variable `HEALTHCHECK_URL` | публичный URL API, например `https://api.example.com` |
+| Variable `ENABLE_BOT` | `true` чтобы при деплое поднимать профиль `bot` |
+
+**Никогда:**
+
+- не коммить приватный ключ;
+- не печатать `VPS_SSH_KEY` / `.env.production` / токены в workflow;
+- не класть `.env.production` в git.
+
+Environment: workflow использует GitHub Environment `production` — создай его в Settings → Environments (можно без protection rules на старте).
 
 ---
 
-## 4. Первый деплой кода
+## 4. Первый запуск на сервере
 
-### Вариант A — git clone (проще для ручного старта)
+Под `deploy`:
 
 ```bash
-cd /opt
-git clone https://github.com/K0DDO/Cliperry.git cliperry
 cd /opt/cliperry
+git clone https://github.com/K0DDO/Cliperry.git .
+# если каталог не пустой:
+# git clone https://github.com/K0DDO/Cliperry.git /tmp/cliperry && shopt -s dotglob && mv /tmp/cliperry/* /opt/cliperry/
+
+cp .env.production.example .env.production
+nano .env.production
 ```
 
-### Вариант B — ждать rsync от GitHub Actions
+Заполни секреты (см. ниже), затем **первый** подъём стека (postgres/redis один раз):
 
-CD сам положит файлы в `DEPLOY_PATH` (`/opt/cliperry`).  
-Но **первый раз** `.env` всё равно нужно создать вручную (см. ниже).
+```bash
+chmod +x scripts/vps-deploy.sh
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+Дальше обновления — через Actions или `./scripts/vps-deploy.sh` (пересобирает только app-сервисы).
 
 ---
 
-## 5. Файл `.env`
+## 5. Файл `.env.production`
+
+Файл **только на сервере**, не в Git.
 
 ```bash
 cd /opt/cliperry
-cp .env.production.example .env
-nano .env
+cp .env.production.example .env.production
+nano .env.production
 ```
 
 Сгенерируй секреты:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-# ещё раз для пароля БД / админки
 ```
 
-### Обязательно заполни
+### Обязательно
 
-| Переменная | Пример | Комментарий |
-|---|---|---|
-| `SECRET_KEY` | длинная строка ≥ 32 | подпись токенов скачивания |
-| `POSTGRES_PASSWORD` | сильный пароль | тот же в `DATABASE_URL*` |
-| `DATABASE_URL` | `postgresql+asyncpg://cliperry:PASS@postgres:5432/cliperry` | PASS = POSTGRES_PASSWORD |
-| `DATABASE_URL_SYNC` | `postgresql+psycopg2://cliperry:PASS@postgres:5432/cliperry` | то же |
-| `ADMIN_PASSWORD` | ≥ 12 символов | панель `/admin` |
-| `TRUSTED_HOSTS` | `api.yourdomain.com` | **без** `*` |
-| `TRUST_PROXY_HEADERS` | `true` | за Caddy/nginx |
-| `BACKEND_PUBLIC_URL` | `https://api.yourdomain.com` | ссылки в боте / files |
-| `CORS_ORIGINS` | `https://yourdomain.com` | web UI если есть |
-| `CORS_EXTENSION_IDS` | id расширения Chrome | иначе CORS с extension |
-| `APP_ENV` | `production` | |
-| `DEBUG` | `false` | |
-| `ENABLE_WORKER_TEST` | `false` | |
+| Переменная | Комментарий |
+|---|---|
+| `SECRET_KEY` | ≥ 32 символов |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | БД |
+| `ADMIN_PASSWORD` | ≥ 12 символов |
+| `TRUSTED_HOSTS` | домен API **без** `*` |
+| `TRUST_PROXY_HEADERS` | `true` за Caddy |
+| `BACKEND_PUBLIC_URL` | `https://api.yourdomain.com` |
+| `APP_ENV` | `production` |
+| `DEBUG` | `false` |
+| `ENABLE_WORKER_TEST` | `false` |
 
-`CLIPERRY_IMAGE` при ручном билде оставь `cliperry-backend:latest`.  
-При автодеплое CD сам проставит `ghcr.io/k0ddo/cliperry/cliperry-backend:<sha>`.
-
-**Никогда не коммить `.env` в git.**
+`docker-compose.prod.yml` читает `env_file: .env.production`.  
+Деплой **никогда не перезаписывает** этот файл.
 
 ---
 
-## 6. Reverse proxy + TLS (Caddy)
+## 6. Reverse proxy (Caddy)
 
-Самый простой вариант — Caddy (авто-сертификаты Let's Encrypt).
+Backend слушает только `127.0.0.1:8000`. Наружу — 80/443 через Caddy (или nginx).
 
-```bash
-sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt-get update
-sudo apt-get install -y caddy
-```
-
-`/etc/caddy/Caddyfile`:
+Пример `/etc/caddy/Caddyfile`:
 
 ```caddy
 api.yourdomain.com {
     encode gzip
-
     reverse_proxy 127.0.0.1:8000 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
@@ -207,300 +225,115 @@ api.yourdomain.com {
 
 ```bash
 sudo systemctl reload caddy
-sudo systemctl status caddy
 ```
 
-Backend в prod уже биндится на `127.0.0.1:8000` — снаружи доступен только через Caddy на 443.
+UFW (один раз, вручную админом — **не из Actions**):
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
 
 ---
 
-## 7. Первый запуск стека
+## 7. GitHub Actions
+
+Файл: `.github/workflows/deploy.yml`
+
+Триггеры:
+
+- `push` в `main`
+- `workflow_dispatch` (Actions → Deploy → Run workflow)
+
+Пайплайн:
+
+1. Unit-тесты в Docker
+2. SSH как `deploy@VPS_HOST`
+3. `cd /opt/cliperry` + `./scripts/vps-deploy.sh`:
+   - проверка `docker-compose.prod.yml`, `backend/Dockerfile`, `.env.production`
+   - `docker compose config`
+   - `git fetch` / `checkout main` / `pull`
+   - backup: `pg_dump` → `backups/predeploy_*.sql.gz`
+   - `alembic upgrade head`
+   - `docker compose build` только `backend` (+ `worker` / `beat` / опционально `bot`)
+   - `docker compose up -d --no-deps` только app-сервисов
+   - health: postgres / redis / backend (~60 с)
+   - при ошибке — rollback на тег `cliperry-backend:previous`
+
+Postgres и Redis **не** пересобираются без нужды.  
+`docker compose down` **не** вызывается.
+
+---
+
+## 8. Ручной деплой / откат
+
+На сервере:
 
 ```bash
 cd /opt/cliperry
-chmod +x scripts/deploy.sh backend/scripts/*.sh
-
-# Без бота:
-./scripts/deploy.sh
-
-# Или вручную:
-docker compose -f docker-compose.prod.yml up -d --build
+./scripts/vps-deploy.sh
 ```
 
-Сервисы:
+Откат образа (если тег previous есть):
+
+```bash
+docker tag cliperry-backend:previous cliperry-backend:latest
+docker compose -f docker-compose.prod.yml --env-file .env.production \
+  up -d --no-deps backend worker beat
+```
+
+Восстановление БД из бэкапа (только если нужно):
+
+```bash
+gunzip -c backups/predeploy_YYYY-MM-DD_HH-MM.sql.gz \
+  | docker exec -i cliperry-postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
+```
+
+---
+
+## 9. Проверки
+
+```bash
+whoami                    # deploy
+pwd                       # /opt/cliperry
+docker compose -f docker-compose.prod.yml --env-file .env.production ps
+curl -fsS http://127.0.0.1:8000/ready
+docker inspect cliperry-postgres --format='{{.State.Health.Status}}'  # healthy
+docker inspect cliperry-redis --format='{{.State.Health.Status}}'     # healthy
+```
+
+Чужие сервисы должны остаться нетронутыми:
+
+```bash
+docker ps --format '{{.Names}}' | grep -E 'amnezia|briefly|moex' || true
+```
+
+---
+
+## 10. Что запрещено
+
+GitHub Actions / `vps-deploy.sh` **не должны**:
+
+- останавливать весь Docker;
+- делать `docker compose down` вне проекта;
+- удалять volumes / `docker system prune`;
+- менять firewall / iptables / сети хоста;
+- заходить в `/opt/briefly`, `/opt/moex-bot`, Amnezia;
+- перезапускать чужие systemd-юниты;
+- выполнять команды вне `/opt/cliperry`;
+- печатать `.env.production`, `BOT_TOKEN`, `VPS_SSH_KEY` и прочие секреты.
+
+---
+
+## Сервисы Cliperry
 
 | Контейнер | Роль |
 |---|---|
 | `cliperry-postgres` | БД |
-| `cliperry-redis` | брокер / rate limit / pubsub |
-| `cliperry-backend` | FastAPI API + admin |
-| `cliperry-worker` | скачивание yt-dlp |
-| `cliperry-beat` | cleanup temp-файлов каждые 15 мин |
-| `cliperry-bot` | Telegram (только с `--profile bot`) |
-
-Миграции Alembic гоняются автоматически при старте backend (`entrypoint.sh`).
-
----
-
-## 8. Проверки
-
-На VPS:
-
-```bash
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS http://127.0.0.1:8000/ready
-docker compose -f docker-compose.prod.yml ps
-```
-
-Снаружи:
-
-```bash
-curl -fsS https://api.yourdomain.com/health
-curl -fsS https://api.yourdomain.com/ready
-```
-
-Админка: `https://api.yourdomain.com/admin`  
-Логин/пароль из `.env` (`ADMIN_USERNAME` / `ADMIN_PASSWORD`).
-
-Smoke API:
-
-```bash
-curl -fsS -X POST https://api.yourdomain.com/api/analyze \
-  -H "Content-Type: application/json" \
-  -H "X-Device-Id: 00000000-0000-4000-8000-000000000001" \
-  -d '{"url":"https://www.youtube.com/watch?v=jNQXAC9IVRw"}'
-```
-
----
-
-## 9. Telegram-бот
-
-1. У [@BotFather](https://t.me/BotFather) создай бота → получи token.
-2. В `.env`:
-
-```env
-TELEGRAM_BOT_TOKEN=123456:ABCDEF...
-BACKEND_PUBLIC_URL=https://api.yourdomain.com
-```
-
-3. Запуск:
-
-```bash
-cd /opt/cliperry
-ENABLE_BOT=true ./scripts/deploy.sh
-# или
-docker compose -f docker-compose.prod.yml --profile bot up -d
-```
-
-4. В GitHub Variables поставь `ENABLE_BOT=true`, чтобы CD тоже поднимал бота.
-
-Бот ходит в API по `BACKEND_PUBLIC_URL` (должен быть доступен с VPS — обычно это публичный HTTPS).
-
----
-
-## 10. Chrome Extension
-
-```bash
-cd extension
-npm install
-# для prod API:
-# создай .env / задай при билде:
-# VITE_API_BASE_URL=https://api.yourdomain.com
-npm run build
-```
-
-Загрузи `extension/dist` в Chrome → Developer mode → Load unpacked.
-
-В Settings расширения укажи `https://api.yourdomain.com`.  
-В `.env` на сервере добавь id расширения в `CORS_EXTENSION_IDS`.
-
----
-
-## 11. Автодеплой GitHub Actions
-
-Файл: [`.github/workflows/cd.yml`](.github/workflows/cd.yml)
-
-### 11.1. SSH-ключ для CD
-
-На VPS (под `deploy`):
-
-```bash
-ssh-keygen -t ed25519 -C "cliperry-cd" -f ~/.ssh/cliperry_cd -N ""
-cat ~/.ssh/cliperry_cd.pub >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-cat ~/.ssh/cliperry_cd   # ЭТО приватный ключ → в GitHub Secret
-```
-
-### 11.2. Secrets в GitHub
-
-Репозиторий → **Settings → Secrets and variables → Actions → Secrets**:
-
-| Secret | Значение |
-|---|---|
-| `VPS_HOST` | IP или hostname VPS |
-| `VPS_USER` | `deploy` |
-| `VPS_SSH_PRIVATE_KEY` | содержимое `~/.ssh/cliperry_cd` целиком |
-| `VPS_PORT` | `22` (или свой) |
-| `DEPLOY_PATH` | `/opt/cliperry` |
-| `HEALTHCHECK_URL` | `https://api.yourdomain.com` |
-
-### 11.3. Environment
-
-Settings → Environments → создай **`production`**.  
-Можно включить required reviewers для ручного approve перед деплоем.
-
-### 11.4. Variables (опционально)
-
-| Variable | Значение |
-|---|---|
-| `ENABLE_BOT` | `true` если нужен Telegram-бот |
-
-### 11.5. Packages (GHCR)
-
-CD пушит образ в `ghcr.io/k0ddo/cliperry/cliperry-backend`.  
-`GITHUB_TOKEN` уже имеет `packages:write` в workflow.
-
-На VPS при деплое делается `docker login ghcr.io` временным токеном из Actions.
-
-Если package private — убедись, что Actions может читать/писать packages репозитория (Settings → Actions → General → Workflow permissions: Read and write).
-
-### 11.6. Первый прогон CD
-
-1. На VPS уже есть `/opt/cliperry/.env` (CD **не** затирает `.env`).
-2. GitHub → **Actions → CD → Run workflow** (или `git push` в `main`).
-3. Смотри jobs: Build → Deploy VPS → Healthcheck.
-4. Если Deploy упал по SSH — проверь ключ, `deploy` в docker-группе, firewall.
-
-Локально перед пушем можно прогнать тесты:
-
-```bash
-docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from test
-```
-
----
-
-## 12. Обновления и откат
-
-### Автоматически
-
-```bash
-git add .
-git commit -m "your message"
-git push origin main
-```
-
-CD сам соберёт образ, зальёт на VPS и перезапустит контейнеры.
-
-### Вручную на VPS
-
-```bash
-cd /opt/cliperry
-git pull   # если клонировал через git
-./scripts/deploy.sh
-```
-
-### Откат на старый образ
-
-```bash
-# тег = короткий sha коммита (12 символов), смотри GHCR / Actions log
-CLIPERRY_IMAGE=ghcr.io/k0ddo/cliperry/cliperry-backend:OLDSHA \
-  HEALTH_URL=http://127.0.0.1:8000 \
-  ./scripts/deploy.sh
-```
-
----
-
-## 13. Бэкапы и логи
-
-### Бэкап Postgres (раз в день через cron)
-
-```bash
-crontab -e
-```
-
-```cron
-0 3 * * * cd /opt/cliperry && set -a && . ./.env && set +a && docker exec cliperry-postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > /opt/cliperry/backups/db-$(date +\%Y\%m\%d).sql.gz
-```
-
-Храни последние 7–14 дней, копируй бэкапы off-site.
-
-### Логи
-
-```bash
-docker compose -f docker-compose.prod.yml logs -f --tail=200 backend
-docker compose -f docker-compose.prod.yml logs -f --tail=200 worker
-docker compose -f docker-compose.prod.yml logs -f --tail=100 beat bot
-```
-
-Ротация логов уже в compose (`json-file`, max-size/max-file).
-
-### YouTube cookies (если бот-чек)
-
-Положи cookies в volume `cookies_data` и укажи в `.env`:
-
-```env
-YTDLP_COOKIES_FILE=/app/cookies/cookies.txt
-```
-
-Или прокси: `YTDLP_PROXY=socks5://...`
-
----
-
-## 14. Чеклист go-live
-
-- [ ] DNS `api.…` указывает на VPS
-- [ ] Docker + docker compose работают под `deploy`
-- [ ] `.env` заполнен, нет `CHANGE_ME` / `*` в `TRUSTED_HOSTS`
-- [ ] Caddy отдаёт HTTPS, `curl https://api…/ready` → 200
-- [ ] `docker compose -f docker-compose.prod.yml ps` — все healthy
-- [ ] Admin открывается, логин работает
-- [ ] Analyze YouTube URL через API/бота работает
-- [ ] Download → ссылка `/api/files/…` открывает файл
-- [ ] GitHub Secrets заполнены
-- [ ] Environment `production` создан
-- [ ] Test deploy через **Run workflow** успешен
-- [ ] (опц.) Bot запущен, `/start` отвечает
-- [ ] (опц.) Cron бэкапа БД
-
----
-
-## 15. Типичные проблемы
-
-| Симптом | Что проверить |
-|---|---|
-| CD: Permission denied (SSH) | ключ в Secrets, user `deploy`, `authorized_keys` |
-| CD: docker permission | `deploy` в группе `docker`, re-login |
-| `/ready` 503 | postgres/redis unhealthy; `docker compose ps` / logs |
-| YouTube «unavailable» / bot check | cookies / proxy на VPS IP |
-| Admin 400 / Host | `TRUSTED_HOSTS` = точный hostname |
-| Extension CORS | `CORS_EXTENSION_IDS` = id расширения |
-| Нет файла после download | worker logs; `temp_data` volume; size limit 2 GiB |
-| Бот не стартует | `TELEGRAM_BOT_TOKEN`, `--profile bot` / `ENABLE_BOT=true` |
-| Порт 8000 снаружи | так и должно; ходи через 443 Caddy |
-
----
-
-## Быстрый TL;DR
-
-```bash
-# На VPS
-sudo apt install docker… && usermod -aG docker deploy
-mkdir -p /opt/cliperry && cd /opt/cliperry
-git clone https://github.com/K0DDO/Cliperry.git .
-cp .env.production.example .env && nano .env   # секреты!
-# Caddy → reverse_proxy 127.0.0.1:8000
-./scripts/deploy.sh
-curl https://api.yourdomain.com/ready
-
-# GitHub Secrets: VPS_HOST, VPS_USER, VPS_SSH_PRIVATE_KEY, DEPLOY_PATH, HEALTHCHECK_URL
-# Environment: production
-# Дальше: git push main → автодеплой
-```
-
-Локальная разработка (не prod):
-
-```bash
-cp .env.example .env
-docker compose up --build
-# API: http://localhost:8000
-```
+| `cliperry-redis` | брокер / rate limit |
+| `cliperry-backend` | FastAPI |
+| `cliperry-worker` | yt-dlp |
+| `cliperry-beat` | cleanup |
+| `cliperry-bot` | Telegram (`ENABLE_BOT=true` / profile `bot`) |

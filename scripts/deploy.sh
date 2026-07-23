@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Cliperry on the VPS (used by GitHub Actions CD and manual updates).
+# Legacy helper (expects .env). Prefer scripts/vps-deploy.sh on shared VPS (/opt/cliperry).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

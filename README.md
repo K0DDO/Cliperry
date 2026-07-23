@@ -43,13 +43,13 @@ curl http://localhost:8000/ready
 
 Кратко:
 
-1. VPS + Docker + каталог `/opt/cliperry`
-2. `.env` из `.env.production.example` (секреты!)
+1. Пользователь `deploy` + Docker group, каталог `/opt/cliperry`
+2. `.env.production` из `.env.production.example` (только на сервере)
 3. Caddy/nginx TLS → `127.0.0.1:8000`
-4. `./scripts/deploy.sh`
-5. GitHub Secrets → push `main` → автодеплой (GHCR → VPS → `/ready`)
+4. Secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
+5. Push `main` или **Actions → Deploy → Run workflow** → SSH → `scripts/vps-deploy.sh`
 
-Репозиторий: https://github.com/K0DDO/Cliperry
+CI обновляет **только** Cliperry; другие сервисы на VPS не трогает.
 
 ## API (основное)
 
@@ -85,8 +85,8 @@ cliperry/
 ├── docker-compose.yml       # local
 ├── docker-compose.prod.yml  # production
 ├── docker-compose.test.yml  # CI tests
-├── scripts/deploy.sh
-├── .github/workflows/cd.yml
+├── scripts/vps-deploy.sh    # safe prod deploy (shared VPS)
+├── .github/workflows/deploy.yml
 ├── DEPLOY.md                # ← полный гайд деплоя
 └── .env.production.example
 ```

@@ -1,9 +1,9 @@
 # Cliperry — production compose
 #
 # Usage:
-#   cp .env.production.example .env
+#   cp .env.production.example .env.production
 #   # fill secrets, then:
-#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 #
 # Postgres/Redis are internal-only (no host ports).
 # Put a reverse proxy (nginx/Caddy/Traefik) in front of backend:8000.
@@ -82,7 +82,7 @@ services:
     container_name: cliperry-backend
     <<: *prod-restart
     env_file:
-      - .env
+      - .env.production
     environment:
       APP_ENV: production
       DEBUG: "false"
@@ -125,7 +125,7 @@ services:
     container_name: cliperry-worker
     <<: *prod-restart
     env_file:
-      - .env
+      - .env.production
     environment:
       APP_ENV: production
       DEBUG: "false"
@@ -177,7 +177,7 @@ services:
     container_name: cliperry-beat
     <<: *prod-restart
     env_file:
-      - .env
+      - .env.production
     environment:
       APP_ENV: production
       DEBUG: "false"
@@ -217,7 +217,7 @@ services:
     container_name: cliperry-bot
     <<: *prod-restart
     env_file:
-      - .env
+      - .env.production
     environment:
       APP_ENV: production
       DEBUG: "false"
