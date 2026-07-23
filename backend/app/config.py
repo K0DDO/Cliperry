@@ -128,7 +128,7 @@ class Settings(BaseSettings):
         hosts = [host.strip() for host in self.trusted_hosts.split(",") if host.strip()]
         if hosts == ["*"]:
             return hosts
-        for local in ("localhost", "127.0.0.1"):
+        for local in ("localhost", "127.0.0.1", "backend"):
             if local not in hosts:
                 hosts.append(local)
         return hosts
